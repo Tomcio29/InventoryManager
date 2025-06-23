@@ -28,7 +28,7 @@ export interface IStorage {
   getAsset(id: number): Promise<Asset | undefined>;
   getAssetByAssetId(assetId: string): Promise<Asset | undefined>;
   getAssetByQrCode(qrCode: string): Promise<Asset | undefined>;
-  createAsset(asset: InsertAsset): Promise<Asset>;
+  createAsset(asset: InsertAsset & { assetId: string }): Promise<Asset>;
   updateAsset(id: number, updates: UpdateAsset): Promise<Asset>;
   deleteAsset(id: number): Promise<void>;
   getAssetsInWarehouse(): Promise<Asset[]>;
@@ -97,7 +97,7 @@ export class DatabaseStorage implements IStorage {
     return asset || undefined;
   }
 
-  async createAsset(asset: InsertAsset): Promise<Asset> {
+  async createAsset(asset: InsertAsset & { assetId: string }): Promise<Asset> {
     // Generate QR code content (asset ID)
     const qrCodeContent = asset.assetId;
     

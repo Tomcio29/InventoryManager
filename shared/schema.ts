@@ -49,6 +49,9 @@ export const insertAssetSchema = createInsertSchema(assets).omit({
   qrCode: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  locationX: z.string().transform((val) => val),
+  locationY: z.string().transform((val) => val),
 });
 
 export const updateAssetSchema = createInsertSchema(assets).omit({
@@ -57,6 +60,9 @@ export const updateAssetSchema = createInsertSchema(assets).omit({
   qrCode: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  locationX: z.string().transform((val) => val),
+  locationY: z.string().transform((val) => val),
 }).partial();
 
 export type InsertUser = z.infer<typeof insertUserSchema>;

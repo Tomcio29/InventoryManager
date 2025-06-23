@@ -43,26 +43,26 @@ export const insertWarehouseSchema = createInsertSchema(warehouse).omit({
   currentCount: true,
 });
 
-export const insertAssetSchema = createInsertSchema(assets).omit({
+export const insertAssetSchema = createInsertSchema(assets, {
+  locationX: z.union([z.string(), z.number()]).transform(String),
+  locationY: z.union([z.string(), z.number()]).transform(String),
+}).omit({
   id: true,
   assetId: true,
   qrCode: true,
   createdAt: true,
   updatedAt: true,
-}).extend({
-  locationX: z.string().transform((val) => val),
-  locationY: z.string().transform((val) => val),
 });
 
-export const updateAssetSchema = createInsertSchema(assets).omit({
+export const updateAssetSchema = createInsertSchema(assets, {
+  locationX: z.union([z.string(), z.number()]).transform(String),
+  locationY: z.union([z.string(), z.number()]).transform(String),
+}).omit({
   id: true,
   assetId: true,
   qrCode: true,
   createdAt: true,
   updatedAt: true,
-}).extend({
-  locationX: z.string().transform((val) => val),
-  locationY: z.string().transform((val) => val),
 }).partial();
 
 export type InsertUser = z.infer<typeof insertUserSchema>;

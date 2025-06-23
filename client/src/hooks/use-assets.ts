@@ -18,5 +18,6 @@ export function useAssetByAssetId(assetId: string) {
   return useQuery<Asset>({
     queryKey: [`/api/assets/find/${assetId}`],
     enabled: !!assetId,
+    retry: false,
   });
 }

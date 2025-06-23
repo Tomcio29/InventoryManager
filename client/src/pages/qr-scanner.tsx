@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { QRScanner } from "@/components/qr/qr-scanner";
 import { AssetCard } from "@/components/asset/asset-card";
-import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { useAssetByAssetId } from "@/hooks/use-assets";
 import { Camera, Search, QrCode, AlertCircle } from "lucide-react";
 import type { Asset } from "@shared/schema";
 
@@ -28,11 +28,7 @@ export default function QRScannerPage() {
     }
   }, [location]);
 
-  const { data: asset, isLoading, error } = useQuery({
-    queryKey: ["/api/assets/find", searchId],
-    enabled: !!searchId,
-    retry: false,
-  });
+  const { data: asset, isLoading, error } = useAssetByAssetId(searchId);
 
   useEffect(() => {
     if (asset && asset.name) {

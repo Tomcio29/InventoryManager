@@ -16,7 +16,7 @@ export function useAsset(id: number) {
 
 export function useAssetByAssetId(assetId: string) {
   return useQuery<Asset>({
-    queryKey: ["/api/assets/find", assetId],
+    queryKey: [`/api/assets/find/${assetId}`],
     enabled: !!assetId,
   });
 }

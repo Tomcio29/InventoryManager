@@ -1,0 +1,35 @@
+# Backend Dockerfile
+FROM node:18-alpine
+
+# Install PostgreSQL client
+RUN apk add --no-cache postgresql-client
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy backend source code and shared schema
+COPY server/ ./server/
+COPY shared/ ./shared/
+COPY drizzle.config.ts ./
+COPY tsconfig.json ./
+
+# Install build dependencies
+RUN npm install -D typescript tsx @types/node
+
+# Build the backend (compile TypeScript)
+RUN npx tsc --project tsconfig.json
+
+# Expose port
+EXPOSE 5000
+
+# Add wait script for database
+COPY wait-for-postgres.sh /wait-for-postgres.sh
+RUN chmod +x /wait-for-postgres.sh
+
+# Start command
+CMD ["/wait-for-postgres.sh", "postgres", "npm", "run", "start:prod"]

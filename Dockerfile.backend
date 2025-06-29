@@ -17,19 +17,19 @@ COPY server/ ./server/
 COPY shared/ ./shared/
 COPY drizzle.config.ts ./
 COPY tsconfig.json ./
+COPY vite.config.ts ./
 
 # Install build dependencies
-RUN npm install -D typescript tsx @types/node
+RUN npm install -D typescript tsx @types/node esbuild
 
-# Build the backend (compile TypeScript)
-RUN npx tsc --project tsconfig.json
+# Build the backend
+RUN npm run build:backend
 
 # Expose port
 EXPOSE 5000
 
-# Add wait script for database
-COPY wait-for-postgres.sh /wait-for-postgres.sh
-RUN chmod +x /wait-for-postgres.sh
+# Install netcat for database wait
+RUN apk add --no-cache netcat-openbsd
 
-# Start command
-CMD ["/wait-for-postgres.sh", "postgres", "npm", "run", "start:prod"]
+# Start command - wait for postgres then start
+CMD ["sh", "-c", "while ! nc -z postgres 5432; do echo 'Waiting for postgres...'; sleep 1; done; npm run db:push; npm run start"]

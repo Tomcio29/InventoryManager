@@ -19,7 +19,7 @@ COPY tsconfig.json ./
 COPY components.json ./
 
 # Build the frontend
-RUN npm run build
+RUN npm run build:frontend
 
 # Production stage
 FROM nginx:alpine

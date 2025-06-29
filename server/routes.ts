@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertAssetSchema, updateAssetSchema } from "@shared/schema";
 import { z } from "zod";
+import { eventPublisher } from "./event-services";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
@@ -136,6 +137,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         assetId,
       });
 
+      // Publish asset created event
+      await eventPublisher.publishAssetEvent({
+        id: `asset-${asset.id}-${Date.now()}`,
+        action: 'created',
+        assetId: asset.id.toString(),
+        assetData: asset,
+        timestamp: new Date()
+      });
+
+      // Send notification about asset creation
+      await eventPublisher.publishNotificationEvent({
+        id: `notification-${Date.now()}`,
+        type: 'success',
+        title: 'Nowy Asset Utworzony',
+        message: `Asset ${asset.name} (${asset.assetId}) został pomyślnie utworzony w kategorii ${asset.category}`,
+        timestamp: new Date(),
+        metadata: { assetId: asset.id, action: 'created' }
+      });
+
       res.status(201).json(asset);
     } catch (error: any) {
       if (error instanceof z.ZodError) {
@@ -167,6 +187,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const validatedData = updateAssetSchema.parse(req.body);
       const asset = await storage.updateAsset(id, validatedData);
+      
+      // Publish asset updated event
+      await eventPublisher.publishAssetEvent({
+        id: `asset-${asset.id}-${Date.now()}`,
+        action: 'updated',
+        assetId: asset.id.toString(),
+        assetData: asset,
+        timestamp: new Date()
+      });
+
+      // Send notification about asset update
+      await eventPublisher.publishNotificationEvent({
+        id: `notification-${Date.now()}`,
+        type: 'info',
+        title: 'Asset Zaktualizowany',
+        message: `Asset ${asset.name} (${asset.assetId}) został zaktualizowany`,
+        timestamp: new Date(),
+        metadata: { assetId: asset.id, action: 'updated' }
+      });
+      
       res.json(asset);
     } catch (error: any) {
       if (error instanceof z.ZodError) {
@@ -180,7 +220,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/assets/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      
+      // Get asset details before deletion for the event
+      const asset = await storage.getAsset(id);
+      if (!asset) {
+        return res.status(404).json({ message: "Asset not found" });
+      }
+      
       await storage.deleteAsset(id);
+      
+      // Publish asset deleted event
+      await eventPublisher.publishAssetEvent({
+        id: `asset-${id}-${Date.now()}`,
+        action: 'deleted',
+        assetId: id.toString(),
+        assetData: asset,
+        timestamp: new Date()
+      });
+
+      // Send notification about asset deletion
+      await eventPublisher.publishNotificationEvent({
+        id: `notification-${Date.now()}`,
+        type: 'warning',
+        title: 'Asset Usunięty',
+        message: `Asset ${asset.name} (${asset.assetId}) został usunięty z systemu`,
+        timestamp: new Date(),
+        metadata: { assetId: id, action: 'deleted' }
+      });
+      
       res.status(204).send();
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -215,6 +282,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       res.json(stats);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Test notification endpoint (for debugging)
+  app.post("/api/test/notification", async (req, res) => {
+    try {
+      const { type = 'info', title = 'Test Notification', message = 'To jest testowe powiadomienie' } = req.body;
+      
+      await eventPublisher.publishNotificationEvent({
+        id: `test-notification-${Date.now()}`,
+        type: type as 'success' | 'warning' | 'error' | 'info',
+        title,
+        message,
+        timestamp: new Date(),
+        metadata: { source: 'test-endpoint' }
+      });
+      
+      res.json({ success: true, message: 'Powiadomienie testowe zostało wysłane' });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

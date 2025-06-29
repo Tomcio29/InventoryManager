@@ -1,0 +1,32 @@
+# Enhanced Notification Service - rozbudowany mikroserwis powiadomień z bazą danych
+FROM node:18-alpine
+
+# Instalacja dodatkowych narzędzi
+RUN apk add --no-cache netcat-openbsd
+
+WORKDIR /app
+
+# Kopiowanie plików package.json
+COPY package*.json ./
+
+# Instalacja WSZYSTKICH zależności (również dev dependencies dla esbuild)
+RUN npm ci
+
+# Kopiowanie całego kodu źródłowego
+COPY server/ ./server/
+COPY shared/ ./shared/
+COPY drizzle.config.ts ./
+COPY tsconfig.json ./
+COPY vite.config.ts ./
+
+# Instalacja dev dependencies i budowanie aplikacji
+RUN npm install -D typescript tsx @types/node esbuild
+RUN npm run build:enhanced-notification
+
+# Kopiowanie skryptu oczekiwania
+COPY wait-for-postgres.sh ./
+COPY wait-for-rabbitmq.sh ./
+RUN chmod +x wait-for-postgres.sh wait-for-rabbitmq.sh
+
+# Uruchomienie serwisu z oczekiwaniem na zależności
+CMD ["sh", "-c", "./wait-for-postgres.sh postgres 5432 && ./wait-for-rabbitmq.sh rabbitmq 5672 && node dist/enhanced-notification-service.js"]

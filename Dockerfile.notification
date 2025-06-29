@@ -1,0 +1,19 @@
+# Notification Service - przykład mikroserwisu korzystającego z RabbitMQ
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Kopiowanie plików package.json
+COPY package*.json ./
+
+# Instalacja WSZYSTKICH zależności (również dev dependencies dla esbuild)
+RUN npm ci
+
+# Kopiowanie całego kodu źródłowego
+COPY . .
+
+# Budowanie aplikacji
+RUN npm run build:notification
+
+# Uruchomienie serwisu
+CMD ["node", "dist/notification-service.js"]

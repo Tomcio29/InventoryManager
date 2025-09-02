@@ -12,6 +12,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, count, sql } from "drizzle-orm";
+import { determineAssetStatus } from "./warehouse-utils";
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -98,6 +99,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createAsset(asset: InsertAsset & { assetId: string }): Promise<Asset> {
+    // Get warehouse to determine asset status based on coordinates
+    const warehouseData = await this.getWarehouse();
+    if (!warehouseData) {
+      throw new Error("Warehouse not configured");
+    }
+
+    // Automatically determine status based on coordinates
+    const { inWarehouse, status } = determineAssetStatus(
+      asset.locationX, 
+      asset.locationY, 
+      warehouseData
+    );
+
     // Generate QR code content (asset ID)
     const qrCodeContent = asset.assetId;
     
@@ -105,6 +119,8 @@ export class DatabaseStorage implements IStorage {
       .insert(assets)
       .values({
         ...asset,
+        inWarehouse,
+        status,
         qrCode: qrCodeContent,
         updatedAt: new Date(),
       })
@@ -124,17 +140,39 @@ export class DatabaseStorage implements IStorage {
       throw new Error("Asset not found");
     }
 
+    // Get warehouse data to determine status if coordinates are being updated
+    const warehouseData = await this.getWarehouse();
+    if (!warehouseData) {
+      throw new Error("Warehouse not configured");
+    }
+
+    // Determine final coordinates
+    const finalLocationX = updates.locationX ?? originalAsset.locationX;
+    const finalLocationY = updates.locationY ?? originalAsset.locationY;
+
+    // Always determine status based on final coordinates
+    const { inWarehouse, status } = determineAssetStatus(
+      finalLocationX, 
+      finalLocationY, 
+      warehouseData
+    );
+
+    // Override any manually set status/inWarehouse with calculated values
+    const finalUpdates = {
+      ...updates,
+      inWarehouse,
+      status,
+      updatedAt: new Date(),
+    };
+
     const [updatedAsset] = await db
       .update(assets)
-      .set({
-        ...updates,
-        updatedAt: new Date(),
-      })
+      .set(finalUpdates)
       .where(eq(assets.id, id))
       .returning();
 
     // Update warehouse count if warehouse status changed
-    if (updates.inWarehouse !== undefined && updates.inWarehouse !== originalAsset.inWarehouse) {
+    if (updatedAsset.inWarehouse !== originalAsset.inWarehouse) {
       await this.updateWarehouseCount();
     }
 
@@ -161,6 +199,12 @@ export class DatabaseStorage implements IStorage {
 
   async moveAllAssetsRandomly(): Promise<Asset[]> {
     const allAssets = await this.getAssets();
+    const warehouseData = await this.getWarehouse();
+    
+    if (!warehouseData) {
+      throw new Error("Warehouse not configured");
+    }
+    
     const updatedAssets: Asset[] = [];
 
     for (const asset of allAssets) {
@@ -168,9 +212,8 @@ export class DatabaseStorage implements IStorage {
       const newX = Math.floor(Math.random() * 200) - 50; // -50 to 150
       const newY = Math.floor(Math.random() * 200) - 50; // -50 to 150
       
-      // Randomly decide if asset should be in warehouse or field
-      const inWarehouse = Math.random() > 0.5;
-      const status = inWarehouse ? 'in_warehouse' : 'in_field';
+      // Determine status based on actual warehouse boundaries
+      const { inWarehouse, status } = determineAssetStatus(newX, newY, warehouseData);
 
       const updatedAsset = await this.updateAsset(asset.id, {
         locationX: newX.toString(),

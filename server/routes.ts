@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { insertAssetSchema, updateAssetSchema } from "@shared/schema";
 import { z } from "zod";
 import { eventPublisher } from "./event-services";
+import { determineAssetStatus } from "./warehouse-utils";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   
@@ -15,8 +16,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         warehouseData = await storage.createWarehouse({
           name: "Main Warehouse",
           maxCapacity: 250,
-          locationX: "50",
-          locationY: "50",
+          locationX: "0",
+          locationY: "0", 
           width: "100",
           height: "100",
         });
@@ -35,6 +36,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Warehouse not found" });
       }
       res.json(warehouseData);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update warehouse configuration
+  app.patch("/api/warehouse/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updates = req.body;
+      
+      const updatedWarehouse = await storage.updateWarehouse(id, updates);
+
+      // Publish warehouse updated event
+      await eventPublisher.publishWarehouseEvent({
+        id: `warehouse-${updatedWarehouse.id}-${Date.now()}`,
+        action: 'updated',
+        warehouseId: updatedWarehouse.id.toString(),
+        warehouseData: updatedWarehouse,
+        timestamp: new Date()
+      });
+
+      // Send notification about warehouse update
+      await eventPublisher.publishNotificationEvent({
+        id: `notification-${Date.now()}`,
+        type: 'info',
+        title: 'Magazyn Zaktualizowany',
+        message: `Konfiguracja magazynu "${updatedWarehouse.name}" została zaktualizowana`,
+        timestamp: new Date(),
+        metadata: { warehouseId: updatedWarehouse.id, action: 'updated' }
+      });
+      
+      res.json(updatedWarehouse);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -115,16 +149,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create new asset
   app.post("/api/assets", async (req, res) => {
     try {
-      // Check warehouse capacity
-      const warehouseData = await storage.getWarehouse();
-      if (!warehouseData) {
-        return res.status(500).json({ message: "Warehouse not configured" });
-      }
-
-      if (req.body.inWarehouse && warehouseData.currentCount >= warehouseData.maxCapacity) {
-        return res.status(400).json({ message: "Warehouse is at full capacity" });
-      }
-
       const validatedData = insertAssetSchema.parse(req.body);
       
       // Generate unique asset ID
@@ -132,6 +156,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const prefix = validatedData.category.charAt(0).toUpperCase();
       const assetId = `${prefix}${timestamp.toString().slice(-6)}-2024`;
       
+      // createAsset will automatically determine status based on coordinates
       const asset = await storage.createAsset({
         ...validatedData,
         assetId,
@@ -151,9 +176,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         id: `notification-${Date.now()}`,
         type: 'success',
         title: 'Nowy Asset Utworzony',
-        message: `Asset ${asset.name} (${asset.assetId}) został pomyślnie utworzony w kategorii ${asset.category}`,
+        message: `Asset ${asset.name} (${asset.assetId}) został pomyślnie utworzony w kategorii ${asset.category} - ${asset.inWarehouse ? 'w magazynie' : 'na terenie'}`,
         timestamp: new Date(),
-        metadata: { assetId: asset.id, action: 'created' }
+        metadata: { assetId: asset.id, action: 'created', location: asset.inWarehouse ? 'warehouse' : 'field' }
       });
 
       res.status(201).json(asset);
@@ -170,44 +195,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const id = parseInt(req.params.id);
       
-      // If moving to warehouse, check capacity
-      if (req.body.inWarehouse === true) {
-        const asset = await storage.getAsset(id);
-        if (!asset) {
-          return res.status(404).json({ message: "Asset not found" });
-        }
+      const asset = await storage.getAsset(id);
+      if (!asset) {
+        return res.status(404).json({ message: "Asset not found" });
+      }
 
-        if (!asset.inWarehouse) {
-          const warehouseData = await storage.getWarehouse();
-          if (warehouseData && warehouseData.currentCount >= warehouseData.maxCapacity) {
-            return res.status(400).json({ message: "Warehouse is at full capacity" });
-          }
-        }
+      const warehouseData = await storage.getWarehouse();
+      if (!warehouseData) {
+        return res.status(500).json({ message: "Warehouse not configured" });
       }
 
       const validatedData = updateAssetSchema.parse(req.body);
-      const asset = await storage.updateAsset(id, validatedData);
+      
+      // Check warehouse capacity if coordinates suggest asset is moving to warehouse
+      if (validatedData.locationX !== undefined || validatedData.locationY !== undefined) {
+        const newX = validatedData.locationX || asset.locationX;
+        const newY = validatedData.locationY || asset.locationY;
+        
+        const { inWarehouse } = determineAssetStatus(newX, newY, warehouseData);
+        
+        if (inWarehouse && !asset.inWarehouse && warehouseData.currentCount >= warehouseData.maxCapacity) {
+          return res.status(400).json({ message: "Warehouse is at full capacity" });
+        }
+      }
+
+      // storage.updateAsset will automatically determine status based on coordinates
+      const updatedAsset = await storage.updateAsset(id, validatedData);
       
       // Publish asset updated event
       await eventPublisher.publishAssetEvent({
-        id: `asset-${asset.id}-${Date.now()}`,
+        id: `asset-${updatedAsset.id}-${Date.now()}`,
         action: 'updated',
-        assetId: asset.id.toString(),
-        assetData: asset,
+        assetId: updatedAsset.id.toString(),
+        assetData: updatedAsset,
         timestamp: new Date()
       });
 
       // Send notification about asset update
+      const locationInfo = updatedAsset.inWarehouse !== asset.inWarehouse 
+        ? ` - ${updatedAsset.inWarehouse ? 'przeniesiony do magazynu' : 'przeniesiony na teren'}`
+        : '';
+        
       await eventPublisher.publishNotificationEvent({
         id: `notification-${Date.now()}`,
         type: 'info',
         title: 'Asset Zaktualizowany',
-        message: `Asset ${asset.name} (${asset.assetId}) został zaktualizowany`,
+        message: `Asset ${updatedAsset.name} (${updatedAsset.assetId}) został zaktualizowany${locationInfo}`,
         timestamp: new Date(),
-        metadata: { assetId: asset.id, action: 'updated' }
+        metadata: { assetId: updatedAsset.id, action: 'updated', location: updatedAsset.inWarehouse ? 'warehouse' : 'field' }
       });
       
-      res.json(asset);
+      res.json(updatedAsset);
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Validation error", errors: error.errors });
@@ -302,6 +340,143 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       res.json({ success: true, message: 'Powiadomienie testowe zostało wysłane' });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Test warehouse update event endpoint (for debugging)
+  app.post("/api/test/warehouse-update", async (req, res) => {
+    try {
+      const warehouseData = await storage.getWarehouse();
+      if (!warehouseData) {
+        return res.status(404).json({ message: "Warehouse not found" });
+      }
+
+      // Publish warehouse updated event
+      await eventPublisher.publishWarehouseEvent({
+        id: `test-warehouse-${warehouseData.id}-${Date.now()}`,
+        action: 'updated',
+        warehouseId: warehouseData.id.toString(),
+        warehouseData: warehouseData,
+        timestamp: new Date()
+      });
+
+      // Send notification about warehouse update
+      await eventPublisher.publishNotificationEvent({
+        id: `notification-${Date.now()}`,
+        type: 'info',
+        title: 'Test Warehouse Update',
+        message: `Testowe zdarzenie warehouse.updated dla magazynu "${warehouseData.name}"`,
+        timestamp: new Date(),
+        metadata: { warehouseId: warehouseData.id, action: 'test-updated', source: 'test-endpoint' }
+      });
+      
+      res.json({ 
+        success: true, 
+        message: 'Testowe zdarzenie warehouse.updated zostało wysłane',
+        warehouseData 
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Fix asset statuses based on warehouse bounds
+  app.post("/api/admin/fix-asset-statuses", async (req, res) => {
+    try {
+      const warehouseData = await storage.getWarehouse();
+      if (!warehouseData) {
+        return res.status(500).json({ message: "Warehouse not configured" });
+      }
+
+      const assets = await storage.getAssets();
+      let fixedCount = 0;
+      const results = [];
+
+      for (const asset of assets) {
+        const { inWarehouse, status } = determineAssetStatus(
+          asset.locationX, 
+          asset.locationY, 
+          warehouseData
+        );
+
+        // Check if status needs updating
+        const needsUpdate = asset.inWarehouse !== inWarehouse || asset.status !== status;
+        
+        if (needsUpdate) {
+          const updatedAsset = await storage.updateAsset(asset.id, {
+            inWarehouse,
+            status,
+          });
+          
+          results.push({
+            id: asset.id,
+            name: asset.name,
+            location: `(${asset.locationX}, ${asset.locationY})`,
+            oldStatus: asset.inWarehouse ? 'warehouse' : 'field',
+            newStatus: inWarehouse ? 'warehouse' : 'field',
+            fixed: true
+          });
+          
+          fixedCount++;
+        } else {
+          results.push({
+            id: asset.id,
+            name: asset.name,
+            location: `(${asset.locationX}, ${asset.locationY})`,
+            status: inWarehouse ? 'warehouse' : 'field',
+            fixed: false
+          });
+        }
+      }
+
+      // Send notification about the fix
+      await eventPublisher.publishNotificationEvent({
+        id: `notification-${Date.now()}`,
+        type: 'info',
+        title: 'Statusy Assetów Naprawione',
+        message: `Naprawiono statusy ${fixedCount} assetów na podstawie ich lokalizacji względem magazynu`,
+        timestamp: new Date(),
+        metadata: { action: 'fix-statuses', fixedCount, totalAssets: assets.length }
+      });
+
+      res.json({
+        message: `Fixed ${fixedCount} asset statuses`,
+        fixedCount,
+        totalAssets: assets.length,
+        results
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Test status logic endpoint
+  app.get("/api/test/status/:x/:y", async (req, res) => {
+    try {
+      const x = parseFloat(req.params.x);
+      const y = parseFloat(req.params.y);
+      
+      const warehouseData = await storage.getWarehouse();
+      if (!warehouseData) {
+        return res.status(500).json({ message: "Warehouse not configured" });
+      }
+
+      const { inWarehouse, status } = determineAssetStatus(x, y, warehouseData);
+      
+      res.json({
+        coordinates: { x, y },
+        warehouse: {
+          x: parseFloat(warehouseData.locationX),
+          y: parseFloat(warehouseData.locationY),
+          width: parseFloat(warehouseData.width),
+          height: parseFloat(warehouseData.height),
+          maxX: parseFloat(warehouseData.locationX) + parseFloat(warehouseData.width),
+          maxY: parseFloat(warehouseData.locationY) + parseFloat(warehouseData.height)
+        },
+        result: { inWarehouse, status }
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

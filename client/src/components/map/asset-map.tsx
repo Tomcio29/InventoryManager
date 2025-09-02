@@ -28,16 +28,18 @@ export function AssetMap({ assets, warehouse, height = "400px", showControls = f
     ctx.fillStyle = "#f3f4f6";
     ctx.fillRect(0, 0, rect.width, rect.height);
 
-    // Define coordinate system
-    const mapWidth = 300; // -50 to 250
-    const mapHeight = 300; // -50 to 250
+    // Define coordinate system - show area from -50 to 250 (warehouse is 0-100)
+    const mapWidth = 300; // -50 to 250 total range
+    const mapHeight = 300; // -50 to 250 total range
+    const mapOffsetX = 50; // offset to show negative coordinates
+    const mapOffsetY = 50; // offset to show negative coordinates
     const scaleX = rect.width / mapWidth;
     const scaleY = rect.height / mapHeight;
 
     // Convert world coordinates to canvas coordinates
     const worldToCanvas = (x: number, y: number) => ({
-      x: (x + 50) * scaleX,
-      y: (y + 50) * scaleY,
+      x: (x + mapOffsetX) * scaleX,
+      y: (y + mapOffsetY) * scaleY,
     });
 
     // Draw warehouse boundary if available
@@ -46,6 +48,16 @@ export function AssetMap({ assets, warehouse, height = "400px", showControls = f
       const warehouseY = parseFloat(warehouse.locationY);
       const warehouseWidth = parseFloat(warehouse.width);
       const warehouseHeight = parseFloat(warehouse.height);
+
+      // Debug: log warehouse bounds
+      console.log('Warehouse bounds:', {
+        x: warehouseX,
+        y: warehouseY,
+        width: warehouseWidth,
+        height: warehouseHeight,
+        maxX: warehouseX + warehouseWidth,
+        maxY: warehouseY + warehouseHeight
+      });
 
       const topLeft = worldToCanvas(warehouseX, warehouseY);
       const bottomRight = worldToCanvas(
@@ -78,28 +90,38 @@ export function AssetMap({ assets, warehouse, height = "400px", showControls = f
       ctx.fillStyle = "#16a34a";
       ctx.font = "12px sans-serif";
       ctx.fillText("Warehouse", topLeft.x + 5, topLeft.y + 15);
+      
+      // Debug: show exact coordinates on map
+      ctx.fillStyle = "#16a34a";
+      ctx.font = "10px sans-serif";
+      ctx.fillText(`(${warehouseX},${warehouseY})`, topLeft.x + 5, topLeft.y + 30);
+      ctx.fillText(`(${warehouseX + warehouseWidth},${warehouseY + warehouseHeight})`, bottomRight.x - 60, bottomRight.y - 5);
     }
 
     // Draw grid lines
     ctx.strokeStyle = "#e5e7eb";
     ctx.lineWidth = 1;
     
-    // Vertical lines
-    for (let x = 0; x <= mapWidth; x += 50) {
-      const canvasX = x * scaleX;
-      ctx.beginPath();
-      ctx.moveTo(canvasX, 0);
-      ctx.lineTo(canvasX, rect.height);
-      ctx.stroke();
+    // Vertical lines - every 25 units from -50 to 250
+    for (let x = -50; x <= 250; x += 25) {
+      const pos = worldToCanvas(x, 0);
+      if (pos.x >= 0 && pos.x <= rect.width) {
+        ctx.beginPath();
+        ctx.moveTo(pos.x, 0);
+        ctx.lineTo(pos.x, rect.height);
+        ctx.stroke();
+      }
     }
     
-    // Horizontal lines
-    for (let y = 0; y <= mapHeight; y += 50) {
-      const canvasY = y * scaleY;
-      ctx.beginPath();
-      ctx.moveTo(0, canvasY);
-      ctx.lineTo(rect.width, canvasY);
-      ctx.stroke();
+    // Horizontal lines - every 25 units from -50 to 250
+    for (let y = -50; y <= 250; y += 25) {
+      const pos = worldToCanvas(0, y);
+      if (pos.y >= 0 && pos.y <= rect.height) {
+        ctx.beginPath();
+        ctx.moveTo(0, pos.y);
+        ctx.lineTo(rect.width, pos.y);
+        ctx.stroke();
+      }
     }
 
     // Draw assets
@@ -107,6 +129,11 @@ export function AssetMap({ assets, warehouse, height = "400px", showControls = f
       const x = parseFloat(asset.locationX);
       const y = parseFloat(asset.locationY);
       const pos = worldToCanvas(x, y);
+
+      // Debug: log first 3 assets
+      if (assets.indexOf(asset) < 3) {
+        console.log(`Asset ${asset.name}: coords (${x},${y}), status: ${asset.status}, inWarehouse: ${asset.inWarehouse}`);
+      }
 
       // Choose color based on status
       let color = "#3b82f6"; // blue for in_transit
@@ -134,6 +161,20 @@ export function AssetMap({ assets, warehouse, height = "400px", showControls = f
         const text = asset.assetId.substring(0, 8);
         const textWidth = ctx.measureText(text).width;
         ctx.fillText(text, pos.x - textWidth / 2, pos.y - 10);
+        
+        // Add coordinates for debugging
+        ctx.fillStyle = "#6b7280";
+        ctx.font = "8px sans-serif";
+        const coordText = `(${asset.locationX},${asset.locationY})`;
+        const coordWidth = ctx.measureText(coordText).width;
+        ctx.fillText(coordText, pos.x - coordWidth / 2, pos.y + 15);
+        
+        // Add status indicator
+        ctx.fillStyle = asset.status === "in_warehouse" ? "#16a34a" : "#ea580c";
+        ctx.font = "8px sans-serif";
+        const statusText = asset.status === "in_warehouse" ? "WH" : "FIELD";
+        const statusWidth = ctx.measureText(statusText).width;
+        ctx.fillText(statusText, pos.x - statusWidth / 2, pos.y + 25);
       }
     });
 
@@ -142,16 +183,39 @@ export function AssetMap({ assets, warehouse, height = "400px", showControls = f
       ctx.fillStyle = "#6b7280";
       ctx.font = "12px sans-serif";
       
-      // X-axis labels
-      for (let x = 0; x <= 250; x += 50) {
-        const pos = worldToCanvas(x, -40);
-        ctx.fillText((x - 50).toString(), pos.x - 10, pos.y);
+      // X-axis labels - from -50 to 250, every 50 units
+      for (let x = -50; x <= 250; x += 50) {
+        const pos = worldToCanvas(x, -20);
+        if (pos.x >= 0 && pos.x <= rect.width) {
+          ctx.fillText(x.toString(), pos.x - 10, 15);
+        }
       }
       
-      // Y-axis labels
-      for (let y = 0; y <= 250; y += 50) {
-        const pos = worldToCanvas(-40, y);
-        ctx.fillText((y - 50).toString(), pos.x, pos.y + 5);
+      // Y-axis labels - from -50 to 250, every 50 units  
+      for (let y = -50; y <= 250; y += 50) {
+        const pos = worldToCanvas(-30, y);
+        if (pos.y >= 0 && pos.y <= rect.height) {
+          ctx.fillText(y.toString(), 5, pos.y + 5);
+        }
+      }
+      
+      // Add warehouse boundary markers
+      if (warehouse) {
+        ctx.fillStyle = "#16a34a";
+        ctx.font = "10px sans-serif";
+        const warehouseMaxX = parseFloat(warehouse.locationX) + parseFloat(warehouse.width);
+        const warehouseMaxY = parseFloat(warehouse.locationY) + parseFloat(warehouse.height);
+        
+        // Mark warehouse corners
+        const corners = [
+          { x: parseFloat(warehouse.locationX), y: parseFloat(warehouse.locationY), label: "WH(0,0)" },
+          { x: warehouseMaxX, y: warehouseMaxY, label: `WH(${warehouseMaxX},${warehouseMaxY})` }
+        ];
+        
+        corners.forEach(corner => {
+          const pos = worldToCanvas(corner.x, corner.y);
+          ctx.fillText(corner.label, pos.x + 8, pos.y - 8);
+        });
       }
     }
 

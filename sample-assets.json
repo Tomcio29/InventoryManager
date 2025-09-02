@@ -1,0 +1,82 @@
+[
+  {
+    "name": "Laptop Dell Latitude 5520",
+    "category": "IT Equipment",
+    "status": "in_warehouse",
+    "locationX": "10",
+    "locationY": "15",
+    "inWarehouse": true
+  },
+  {
+    "name": "Projektor Epson EB-X41",
+    "category": "AV Equipment",
+    "status": "in_warehouse",
+    "locationX": "25",
+    "locationY": "20",
+    "inWarehouse": true
+  },
+  {
+    "name": "Krzesło biurowe Ergonomic Pro",
+    "category": "Furniture",
+    "status": "in_warehouse",
+    "locationX": "45",
+    "locationY": "30",
+    "inWarehouse": true
+  },
+  {
+    "name": "Monitor Samsung 27\" 4K",
+    "category": "IT Equipment",
+    "status": "in_warehouse",
+    "locationX": "15",
+    "locationY": "35",
+    "inWarehouse": true
+  },
+  {
+    "name": "Wiertarka Black & Decker",
+    "category": "Tools",
+    "status": "in_field",
+    "locationX": "80",
+    "locationY": "120",
+    "inWarehouse": false
+  },
+  {
+    "name": "Kamera Canon EOS R6",
+    "category": "Photography",
+    "status": "in_warehouse",
+    "locationX": "35",
+    "locationY": "25",
+    "inWarehouse": true
+  },
+  {
+    "name": "Tablet iPad Pro 12.9\"",
+    "category": "IT Equipment",
+    "status": "in_field",
+    "locationX": "150",
+    "locationY": "200",
+    "inWarehouse": false
+  },
+  {
+    "name": "Drukarka HP LaserJet Pro",
+    "category": "Office Equipment",
+    "status": "in_warehouse",
+    "locationX": "55",
+    "locationY": "40",
+    "inWarehouse": true
+  },
+  {
+    "name": "Mikrofon Shure SM7B",
+    "category": "AV Equipment",
+    "status": "in_warehouse",
+    "locationX": "20",
+    "locationY": "45",
+    "inWarehouse": true
+  },
+  {
+    "name": "Router Cisco ISR 4331",
+    "category": "Network Equipment",
+    "status": "in_warehouse",
+    "locationX": "30",
+    "locationY": "50",
+    "inWarehouse": true
+  }
+]

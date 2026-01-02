@@ -55,6 +55,8 @@ export default function QRScannerPage() {
   };
 
   const handleQRScan = (result: string) => {
+    console.log('🎯 QR scan handler called with result:', result);
+    
     setSearchId(result);
     setManualId(result);
     setIsScanning(false);
@@ -62,6 +64,8 @@ export default function QRScannerPage() {
       title: "QR Code Scanned",
       description: `Searching for asset: ${result}`,
     });
+    
+    console.log('📝 Search ID set to:', result);
   };
 
   const handleScanError = (error: string) => {

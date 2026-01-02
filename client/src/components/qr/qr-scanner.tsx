@@ -14,6 +14,7 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
   const [qrScanner, setQrScanner] = useState<QrScanner | null>(null);
   const [lastScan, setLastScan] = useState<string>("");
   const [scanSuccess, setScanSuccess] = useState(false);
+  const debugIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     // Cleanup on unmount
@@ -21,18 +22,26 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
       if (qrScanner) {
         qrScanner.destroy();
       }
+      if (debugIntervalRef.current) {
+        clearInterval(debugIntervalRef.current);
+      }
     };
   }, [qrScanner]);
 
   const startCamera = async () => {
+    console.log('🎥 Starting camera...');
+    
     try {
       if (!videoRef.current) {
+        console.error('❌ Video element not found');
         onError("Video element not available");
         return;
       }
 
       // Check if QR scanner is supported
       const hasCamera = await QrScanner.hasCamera();
+      console.log('📹 Camera available:', hasCamera);
+      
       if (!hasCamera) {
         onError("No camera found on this device");
         return;
@@ -42,10 +51,21 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
       const scanner = new QrScanner(
         videoRef.current,
         (result) => {
-          if (result && result !== lastScan) {
-            setLastScan(result);
+          console.log('🔍 QR Scanner callback triggered!');
+          console.log('📱 Scanned result:', result);
+          console.log('� Result type:', typeof result);
+          console.log('�📋 Last scan was:', lastScan);
+          
+          // Extract text from result (handle both string and object types)
+          const resultText = typeof result === 'string' ? result : result.data;
+          console.log('📝 Extracted text:', resultText);
+          
+          if (resultText && resultText !== lastScan) {
+            console.log('✅ New QR code detected:', resultText);
+            
+            setLastScan(resultText);
             setScanSuccess(true);
-            onScan(result);
+            onScan(resultText);
             
             // Stop scanning after successful scan
             setTimeout(() => {
@@ -53,13 +73,32 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
               scanner.stop();
               setIsScanning(false);
             }, 1500);
+          } else {
+            console.log('❌ QR code ignored (empty or duplicate)');
           }
+        },
+        {
+          maxScansPerSecond: 2,
+          highlightScanRegion: false,
+          highlightCodeOutline: false,
         }
       );
 
-      // Configure scanner options
-      scanner.setGrayscaleWeights(77, 150, 29, false); // Optional: improve performance
-      scanner.setInversionMode('both'); // Scan both normal and inverted QR codes
+      // Configure scanner options (minimal for better compatibility)
+      console.log('🔧 Scanner configured with minimal options');
+      
+      // Test if scanner is working by adding periodic scanning check
+      const debugInterval = setInterval(() => {
+        if (scanner && videoRef.current) {
+          console.log('📊 Scanner status check - video dimensions:', 
+            videoRef.current.videoWidth, 'x', videoRef.current.videoHeight);
+          console.log('📊 Scanner hasFlash:', scanner.hasFlash());
+          console.log('📊 Video ready state:', videoRef.current.readyState);
+          console.log('📊 Video src:', videoRef.current.src || 'no src');
+        }
+      }, 5000);
+      
+      debugIntervalRef.current = debugInterval;
 
       // Set preferred camera to environment (back camera)
       try {
@@ -77,11 +116,13 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
       }
 
       setQrScanner(scanner);
+      console.log('▶️ Starting QR scanner...');
       await scanner.start();
+      console.log('✅ QR scanner started successfully!');
       setIsScanning(true);
       
     } catch (error) {
-      console.error('Camera start error:', error);
+      console.error('❌ Camera start error:', error);
       onError("Failed to start camera. Please check permissions.");
     }
   };
@@ -93,18 +134,13 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
     }
   };
 
-  // Simulate QR code scanning for demo/testing purposes
-  const simulateScan = () => {
-    const mockQRCodes = [
-      "E123456-2024",
-      "T789012-2024", 
-      "F345678-2024",
-      "S901234-2024"
-    ];
-    const randomCode = mockQRCodes[Math.floor(Math.random() * mockQRCodes.length)];
-    setLastScan(randomCode);
+  // Test function to manually trigger a scan result
+  const testScan = () => {
+    console.log('🧪 Manual test scan triggered');
+    const testResult = "I543860-2024";
+    setLastScan(testResult);
     setScanSuccess(true);
-    onScan(randomCode);
+    onScan(testResult);
     
     setTimeout(() => {
       setScanSuccess(false);
@@ -155,12 +191,12 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
       <div className="flex space-x-2">
         {isScanning ? (
           <>
-            <Button onClick={simulateScan} className="flex-1 bg-green-600 hover:bg-green-700">
-              Simulate Scan
-            </Button>
             <Button onClick={stopCamera} variant="outline" className="flex-1">
               <CameraOff className="w-4 h-4 mr-2" />
-              Stop
+              Stop Camera
+            </Button>
+            <Button onClick={testScan} variant="outline" className="flex-1 bg-yellow-100">
+              🧪 Test Scan
             </Button>
           </>
         ) : (
@@ -173,8 +209,8 @@ export function QRScanner({ onScan, onError }: QRScannerProps) {
 
       <div className="text-xs text-gray-500 text-center">
         {isScanning 
-          ? "Point the camera at a QR code to scan it automatically"
-          : "Click 'Start Camera' to begin scanning QR codes"
+          ? "Naceluj kamerę na kod QR. Możesz skanować kod QR z ekranu telefonu lub z wydruku."
+          : "Kliknij 'Start Camera' aby rozpocząć skanowanie kodów QR"
         }
       </div>
       

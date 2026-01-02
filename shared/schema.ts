@@ -5,7 +5,15 @@ import { z } from "zod";
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
+  email: text("email").notNull().unique(),
   password: text("password").notNull(),
+  role: text("role").notNull().default("user"), // 'admin', 'manager', 'user'
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  isActive: boolean("is_active").notNull().default(true),
+  lastLogin: timestamp("last_login"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const warehouse = pgTable("warehouse", {
@@ -51,9 +59,52 @@ export const notifications = pgTable("notifications", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
+export const scans = pgTable("scans", {
+  id: serial("id").primaryKey(),
+  assetId: integer("asset_id").notNull(),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  userId: text("user_id"),
+  scanSource: text("scan_source"),
+  location: text("location"),
+});
+
+export const reconReports = pgTable("recon_reports", {
+  id: serial("id").primaryKey(),
+  runAt: timestamp("run_at").defaultNow().notNull(),
+  diff: text("diff"),
+  status: text("status").notNull().default("new"),
+});
+
+export const auditEvents = pgTable("audit_events", {
+  id: serial("id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  payload: text("payload"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertUserSchema = createInsertSchema(users, {
+  email: z.string().email("Invalid email format"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  role: z.enum(["admin", "manager", "user"]).default("user"),
+}).pick({
   username: true,
+  email: true,
   password: true,
+  role: true,
+  firstName: true,
+  lastName: true,
+});
+
+export const loginSchema = z.object({
+  email: z.string().email("Invalid email format"),
+  password: z.string().min(1, "Password is required"),
+});
+
+export const updateUserSchema = insertUserSchema.omit({ password: true }).partial();
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: z.string().min(6, "New password must be at least 6 characters"),
 });
 
 export const insertWarehouseSchema = createInsertSchema(warehouse).omit({
@@ -89,7 +140,11 @@ export const updateAssetSchema = createInsertSchema(assets, {
 }).partial();
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
+export type LoginUser = z.infer<typeof loginSchema>;
+export type UpdateUser = z.infer<typeof updateUserSchema>;
+export type ChangePassword = z.infer<typeof changePasswordSchema>;
 export type User = typeof users.$inferSelect;
+export type UserRole = "admin" | "manager" | "user";
 
 export type InsertWarehouse = z.infer<typeof insertWarehouseSchema>;
 export type Warehouse = typeof warehouse.$inferSelect;

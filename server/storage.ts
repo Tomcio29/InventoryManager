@@ -36,6 +36,7 @@ export interface IStorage {
   getAssetsInField(): Promise<Asset[]>;
   moveAllAssetsRandomly(): Promise<Asset[]>;
   updateWarehouseCount(): Promise<void>;
+  createScan(assetId: number, data: { userId?: string | null; scanSource?: string | null; location?: string | null }): Promise<any>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -241,6 +242,23 @@ export class DatabaseStorage implements IStorage {
         currentCount: result.count,
       });
     }
+  }
+
+  async createScan(assetId: number, data: { userId?: string | null; scanSource?: string | null; location?: string | null }): Promise<any> {
+    const [scan] = await db.insert((await import('@shared/schema')).scans).values({
+      assetId,
+      userId: data.userId || null,
+      scanSource: data.scanSource || null,
+      location: data.location || null,
+    }).returning();
+
+    // also add audit event
+    await db.insert((await import('@shared/schema')).auditEvents).values({
+      eventType: 'scan',
+      payload: JSON.stringify({ assetId, ...data }),
+    });
+
+    return scan;
   }
 }
 

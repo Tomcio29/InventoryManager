@@ -1,6 +1,8 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { initializeUserSystem } from "./user-init";
+import { runOnce as runReconciliation } from './reconciliation';
 
 const app = express();
 app.use(express.json());
@@ -37,6 +39,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Initialize user system first
+  await initializeUserSystem();
+  
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -67,4 +72,16 @@ app.use((req, res, next) => {
   }, () => {
     log(`serving on port ${port}`);
   });
+
+  // Schedule reconciliation agent every 5 minutes (local and production)
+  try {
+    // run immediately once
+    runReconciliation().catch(err => console.error('Initial reconciliation error', err));
+    // schedule
+    setInterval(() => {
+      runReconciliation().catch(err => console.error('Scheduled reconciliation error', err));
+    }, 1000 * 60 * 5);
+  } catch (e) {
+    console.error('Failed to schedule reconciliation', e);
+  }
 })();

@@ -32,4 +32,4 @@ EXPOSE 5000
 RUN apk add --no-cache netcat-openbsd
 
 # Start command - wait for postgres then start
-CMD ["sh", "-c", "while ! nc -z postgres 5432; do echo 'Waiting for postgres...'; sleep 1; done; npm run db:push; npm run start"]
+CMD ["sh", "-c", "while ! nc -z postgres 5432; do echo 'Waiting for postgres...'; sleep 1; done; npm run start"]

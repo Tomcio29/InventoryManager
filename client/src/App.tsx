@@ -13,42 +13,28 @@ import Warehouse from "@/pages/warehouse";
 import Admin from "@/pages/admin";
 import NotFound from "@/pages/not-found";
 
-function AppLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex h-screen bg-gray-50">
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <TopHeader />
-        <main className="flex-1 overflow-auto">
-          {children}
-        </main>
-      </div>
-    </div>
-  );
-}
-
-function Router() {
-  return (
-    <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/assets" component={Assets} />
-      <Route path="/map" component={AssetMap} />
-      <Route path="/scanner" component={QRScanner} />
-      <Route path="/warehouse" component={Warehouse} />
-      <Route path="/admin" component={Admin} />
-      <Route component={NotFound} />
-    </Switch>
-  );
-}
-
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
+        <div className="flex h-screen bg-gray-50">
+          <Sidebar />
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <TopHeader />
+            <main className="flex-1 overflow-auto">
+              <Switch>
+                <Route path="/" component={Dashboard} />
+                <Route path="/assets" component={Assets} />
+                <Route path="/map" component={AssetMap} />
+                <Route path="/scanner" component={QRScanner} />
+                <Route path="/warehouse" component={Warehouse} />
+                <Route path="/admin" component={Admin} />
+                <Route component={NotFound} />
+              </Switch>
+            </main>
+          </div>
+        </div>
         <Toaster />
-        <AppLayout>
-          <Router />
-        </AppLayout>
       </TooltipProvider>
     </QueryClientProvider>
   );

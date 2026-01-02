@@ -3,10 +3,39 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertAssetSchema, updateAssetSchema } from "@shared/schema";
 import { z } from "zod";
+import { eq } from 'drizzle-orm';
 import { eventPublisher } from "./event-services";
 import { determineAssetStatus } from "./warehouse-utils";
+import { authRoutes } from "./auth-routes";
+import { authenticateToken, requireAdmin, requireManager } from "./auth-middleware";
+import { db } from './db';
+import { reconReports, auditEvents, scans, users } from '@shared/schema';
+import { AuthService } from './auth-service';
+import { eq } from 'drizzle-orm';
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  
+  // Register authentication routes
+  app.use("/api/auth", authRoutes);
+
+  // Test route for debugging
+  app.get("/api/test", (req, res) => {
+    res.json({ message: "Test route works!" });
+  });
+
+  // Dev helper: return an admin JWT for local development (not for production)
+  app.get('/api/dev/token', async (req, res) => {
+    if (process.env.NODE_ENV === 'production') return res.status(404).end();
+    try {
+      const [admin] = await db.select().from(users).where(eq(users.role, 'admin')).limit(1);
+      if (!admin) return res.status(404).json({ error: 'No admin user found' });
+      const token = AuthService.generateToken({ id: admin.id, username: admin.username, email: admin.email, role: admin.role });
+      return res.json({ token });
+    } catch (err) {
+      console.error('Dev token error', err);
+      return res.status(500).json({ error: 'Failed to generate dev token' });
+    }
+  });
   
   // Initialize warehouse if not exists
   app.get("/api/warehouse/init", async (req, res) => {
@@ -42,7 +71,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update warehouse configuration
-  app.patch("/api/warehouse/:id", async (req, res) => {
+  app.patch("/api/warehouse/:id", authenticateToken, requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const updates = req.body;
@@ -146,8 +175,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Record a scan for an asset (can be called by frontend QR scanner)
+  app.post('/api/assets/:assetId/scan', async (req, res) => {
+    const assetIdParam = req.params.assetId;
+    const { userId, scanSource, location } = req.body || {};
+
+    try {
+      // support numeric id or assetId string
+      let asset = null;
+      if (/^\d+$/.test(assetIdParam)) {
+        asset = await storage.getAsset(parseInt(assetIdParam));
+      }
+      if (!asset) {
+        asset = await storage.getAssetByAssetId(assetIdParam);
+      }
+      if (!asset) return res.status(404).json({ error: 'Asset not found' });
+
+      const scan = await storage.createScan(asset.id, { userId: userId || null, scanSource: scanSource || null, location: location || null });
+      return res.json({ scan });
+    } catch (err) {
+      console.error('Error recording scan', err);
+      return res.status(500).json({ error: 'Failed to record scan' });
+    }
+  });
+
+  // List scans for an asset
+  app.get('/api/assets/:assetId/scans', async (req, res) => {
+    const assetIdParam = req.params.assetId;
+    try {
+      let asset = null;
+      if (/^\d+$/.test(assetIdParam)) {
+        asset = await storage.getAsset(parseInt(assetIdParam));
+      }
+      if (!asset) {
+        asset = await storage.getAssetByAssetId(assetIdParam);
+      }
+      if (!asset) return res.status(404).json({ error: 'Asset not found' });
+
+      const rows = await db.select().from(scans).where(eq(scans.assetId, asset.id)).orderBy(scans.timestamp.desc).limit(200);
+      return res.json({ scans: rows });
+    } catch (err) {
+      console.error('Error listing scans', err);
+      return res.status(500).json({ error: 'Failed to list scans' });
+    }
+  });
+
   // Create new asset
-  app.post("/api/assets", async (req, res) => {
+  app.post("/api/assets", authenticateToken, requireManager, async (req, res) => {
     try {
       const validatedData = insertAssetSchema.parse(req.body);
       
@@ -191,7 +265,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update asset
-  app.patch("/api/assets/:id", async (req, res) => {
+  app.patch("/api/assets/:id", authenticateToken, requireManager, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       
@@ -255,7 +329,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete asset
-  app.delete("/api/assets/:id", async (req, res) => {
+  app.delete("/api/assets/:id", authenticateToken, requireManager, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       
@@ -293,7 +367,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Move all assets randomly (Admin function)
-  app.post("/api/admin/move-assets", async (req, res) => {
+  app.post("/api/admin/move-assets", authenticateToken, requireAdmin, async (req, res) => {
     try {
       const assets = await storage.moveAllAssetsRandomly();
       res.json({ message: "All assets moved randomly", assets });
@@ -383,7 +457,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Fix asset statuses based on warehouse bounds
-  app.post("/api/admin/fix-asset-statuses", async (req, res) => {
+  app.post("/api/admin/fix-asset-statuses", authenticateToken, requireAdmin, async (req, res) => {
     try {
       const warehouseData = await storage.getWarehouse();
       if (!warehouseData) {
@@ -448,6 +522,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
         results
       });
     } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Admin: run reconciliation with optional expected list in request body
+  app.post("/api/admin/reconciliation/run", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      // expected: array of objects with assetId or serial
+      const expected: Array<any> = req.body?.expected || null;
+
+      const current = await storage.getAssets();
+
+      const expectedMap = new Map<string, any>();
+      if (expected) for (const e of expected) {
+        const key = e.assetId || e.serial;
+        if (key) expectedMap.set(String(key), e);
+      }
+
+      const currentMap = new Map<string, any>();
+      for (const c of current) currentMap.set(String(c.assetId || c.serial || c.id), c);
+
+      const diffs: any[] = [];
+      if (expected) {
+        for (const [k, e] of expectedMap.entries()) if (!currentMap.has(k)) diffs.push({ type: 'missing_in_db', key: k, expected: e });
+        for (const [k, c] of currentMap.entries()) if (!expectedMap.has(k)) diffs.push({ type: 'unexpected_in_db', key: k, current: c });
+      }
+
+      const report = { runAt: new Date(), diff: JSON.stringify(diffs), status: diffs.length ? 'anomalies' : 'ok' };
+      const [r] = await db.insert(reconReports).values({ runAt: report.runAt, diff: report.diff, status: report.status }).returning();
+
+      for (const d of diffs) await db.insert(auditEvents).values({ eventType: 'recon_diff', payload: JSON.stringify(d) });
+
+      res.json({ success: true, report: r, diffsCount: diffs.length });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Admin: list reconciliation reports
+  app.get('/api/admin/recon-reports', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const reports = await db.select().from(reconReports).limit(100);
+      // sort latest-first in JS to avoid driver-specific ORDER BY generation issues
+      reports.sort((a: any, b: any) => new Date(b.runAt).getTime() - new Date(a.runAt).getTime());
+      res.json(reports);
+    } catch (error: any) {
+      console.error('Error fetching recon reports', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Admin: list audit events
+  app.get('/api/admin/audit-events', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      const events = await db.select().from(auditEvents).limit(500);
+      // sort latest-first by createdAt
+      events.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      res.json(events);
+    } catch (error: any) {
+      console.error('Error fetching audit events', error);
       res.status(500).json({ message: error.message });
     }
   });

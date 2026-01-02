@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -22,6 +22,13 @@ export default function Admin() {
   const { data: assets = [] } = useAssets();
   const { data: warehouse } = useWarehouse();
   const [isMoving, setIsMoving] = useState(false);
+  const [reports, setReports] = useState<Array<any>>([]);
+  const [events, setEvents] = useState<Array<any>>([]);
+  const [loadingReports, setLoadingReports] = useState(false);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  const [openReportIds, setOpenReportIds] = useState<Record<string, boolean>>({});
+  const [openEventIds, setOpenEventIds] = useState<Record<string, boolean>>({});
+  const [activeTab, setActiveTab] = useState<'overview' | 'recon'>('overview');
 
   const moveAssetsMutation = useMutation({
     mutationFn: async () => {
@@ -67,6 +74,39 @@ export default function Admin() {
     }
   };
 
+  const fetchReports = async () => {
+    setLoadingReports(true);
+    try {
+      const res = await apiRequest('GET', '/api/admin/recon-reports');
+      const data = await res.json();
+      setReports(data);
+    } catch (e: any) {
+      toast({ title: 'Error fetching reports', description: e.message, variant: 'destructive' });
+    } finally {
+      setLoadingReports(false);
+    }
+  };
+
+  const fetchEvents = async () => {
+    setLoadingEvents(true);
+    try {
+      const res = await apiRequest('GET', '/api/admin/audit-events');
+      const data = await res.json();
+      setEvents(data);
+    } catch (e: any) {
+      toast({ title: 'Error fetching events', description: e.message, variant: 'destructive' });
+    } finally {
+      setLoadingEvents(false);
+    }
+  };
+
+  useEffect(() => {
+    // fetch initial data for admin view
+    fetchReports();
+    fetchEvents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const capacityUsed = warehouse ? (warehouse.currentCount / warehouse.maxCapacity) * 100 : 0;
 
   return (
@@ -74,16 +114,24 @@ export default function Admin() {
       <div className="max-w-4xl mx-auto">
         
         {/* Admin Header */}
-        <div className="mb-8">
+        <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900 flex items-center">
             <Settings className="w-6 h-6 mr-2" />
             Admin Panel
           </h1>
           <p className="text-gray-600">Administrative tools and system management</p>
+
+          {/* Tabs */}
+          <div className="mt-4 flex items-center space-x-2">
+            <Button variant={activeTab === 'overview' ? undefined : 'ghost'} onClick={() => setActiveTab('overview')}>Overview</Button>
+            <Button variant={activeTab === 'recon' ? undefined : 'ghost'} onClick={() => { setActiveTab('recon'); if (!reports.length) fetchReports(); if (!events.length) fetchEvents(); }}>Reconciliation</Button>
+          </div>
         </div>
 
-        {/* System Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        {activeTab === 'overview' && (
+          <>
+            {/* System Overview */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
@@ -130,8 +178,8 @@ export default function Admin() {
           </Card>
         </div>
 
-        {/* Asset Management Tools */}
-        <Card className="mb-8">
+          {/* Asset Management Tools */}
+          <Card className="mb-8">
           <CardHeader>
             <CardTitle className="flex items-center">
               <Shuffle className="w-5 h-5 mr-2" />
@@ -211,6 +259,106 @@ export default function Admin() {
             </div>
           </CardContent>
         </Card>
+
+          </>
+        )}
+
+        {activeTab === 'recon' && (
+          <>
+            {/* Reconciliation Reports & Audit Events */}
+            <Card className="mt-8">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <AlertTriangle className="w-5 h-5 mr-2 text-yellow-600" />
+              Reconciliation Reports & Audit Events
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-medium text-gray-900">Reconciliation Reports</h4>
+                  <div className="flex items-center space-x-2">
+                    <Button onClick={fetchReports} disabled={loadingReports}>
+                      {loadingReports ? 'Refreshing...' : 'Refresh'}
+                    </Button>
+                  </div>
+                </div>
+
+                {reports.length === 0 ? (
+                  <p className="text-sm text-gray-500">No reports available</p>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-auto">
+                    {reports.map((r) => {
+                      const id = String(r.id || JSON.stringify(r));
+                      const open = !!openReportIds[id];
+                      return (
+                        <div key={id} className="p-2 border rounded">
+                          <div className="flex items-center justify-between">
+                            <div className="text-xs text-gray-500">{r.runAt || r.run_at || ''}</div>
+                            <div className="flex items-center space-x-2">
+                              <div className="text-sm font-medium text-gray-700">{r.status}</div>
+                              <Button size="sm" onClick={() => setOpenReportIds(prev => ({ ...prev, [id]: !prev[id] }))}>
+                                {open ? 'Hide' : 'Show'}
+                              </Button>
+                            </div>
+                          </div>
+                          {open ? (
+                            <pre className="text-sm mt-2 overflow-auto whitespace-pre-wrap">{JSON.stringify(r, null, 2)}</pre>
+                          ) : (
+                            <div className="text-sm text-gray-600 mt-2 truncate">{JSON.stringify(r.diff || r, null, 2).slice(0, 200)}{String(r.diff || r).length > 200 ? '…' : ''}</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-medium text-gray-900">Audit Events</h4>
+                  <div className="flex items-center space-x-2">
+                    <Button onClick={fetchEvents} disabled={loadingEvents}>
+                      {loadingEvents ? 'Refreshing...' : 'Refresh'}
+                    </Button>
+                  </div>
+                </div>
+
+                {events.length === 0 ? (
+                  <p className="text-sm text-gray-500">No audit events available</p>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-auto">
+                    {events.map((e) => {
+                      const id = String(e.id || JSON.stringify(e));
+                      const open = !!openEventIds[id];
+                      return (
+                        <div key={id} className="p-2 border rounded">
+                          <div className="flex items-center justify-between">
+                            <div className="text-xs text-gray-500">{e.createdAt || e.created_at || ''}</div>
+                            <div className="flex items-center space-x-2">
+                              <div className="text-sm font-medium text-gray-700">{e.eventType || e.type}</div>
+                              <Button size="sm" onClick={() => setOpenEventIds(prev => ({ ...prev, [id]: !prev[id] }))}>
+                                {open ? 'Hide' : 'Show'}
+                              </Button>
+                            </div>
+                          </div>
+                          {open ? (
+                            <pre className="text-sm mt-2 overflow-auto whitespace-pre-wrap">{JSON.stringify(e, null, 2)}</pre>
+                          ) : (
+                            <div className="text-sm text-gray-600 mt-2 truncate">{JSON.stringify(e.payload || e, null, 2).slice(0, 200)}{String(e.payload || e).length > 200 ? '…' : ''}</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+            </Card>
+          </>
+        )}
 
         {/* System Information */}
         <Card>

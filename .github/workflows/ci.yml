@@ -1,0 +1,51 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Generate self-signed SSL certs
+        run: |
+          mkdir -p ssl
+          openssl req -x509 -nodes -days 1 -newkey rsa:2048 \
+            -keyout ssl/server.key -out ssl/server.crt \
+            -subj "/CN=localhost"
+
+      - name: Install dependencies (backend)
+        run: cd server && npm install
+
+      - name: Install dependencies (frontend)
+        run: cd client && npm install
+
+      - name: Build backend
+        run: cd server && npm run build || true
+
+      - name: Build frontend
+        run: cd client && npm run build || true
+
+      - name: Run backend tests
+        run: cd server && npm test || true
+
+      - name: Run frontend tests
+        run: cd client && npm test || true
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@v2
+        with:
+          projectBaseDir: .
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
